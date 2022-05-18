@@ -47,13 +47,32 @@ const int relayTimeBetweenInMinutes = 1 * secondsPerMinute; //Tiempo entre apert
 //Time control variables
 unsigned long lastTimeOpenRelay; //Ultima vez que se abrio el relay
 unsigned long epochTime;
-unsigned long epochWateringTimeMorning; //sobre las 12
-unsigned long epochWateringTimeNight;// sobre las 9
+
+int wateringHourMorning = 12;
+int wateringHourNight = 21;
+unsigned long nextWateringEpochTime;
 
 //Relay variables
 int relayPin = 5; //pinout in https://www.electronicwings.com/nodemcu/nodemcu-gpio-with-arduino-ide
 bool isOpenRelay = false;
 //////////////////////////////////////////////////////
+
+unsigned long getNextWateringEpochTime()
+{
+	int currentHour = timeClient.getHours();
+	int currentMinute = timeClient.getMinutes();
+	int currentSeconds = timeClient.getSeconds();
+	unsigned long increaseTime = 0;
+	if (currentHour < wateringHourMorning)
+	{
+		increaseTime = ((wateringHourMorning -1) - currentHour) * secondsPerHour + (59 - currentMinute) * secondsPerMinute + (59 - currentSeconds);
+	}
+	else
+	{
+		increaseTime = ((wateringHourNight -1) - currentHour) * secondsPerHour + (59 - currentMinute) * secondsPerMinute + (59 - currentSeconds);
+	}
+	return timeClient.getEpochTime() + increaseTime;
+}
 
 void updateEpochTime()
 {
@@ -122,7 +141,19 @@ void setup()
 	iniNTP();
 	lastTimeOpenRelay = timeClient.getEpochTime() - 30; //inciamos pasados 30 segundos en el arranque.
 	pinMode(LED_BUILTIN, OUTPUT);
+	updateWateringTime();
 }
+
+void updateWateringTime()
+{
+	Serial.print("Epoch actual: ");
+	Serial.println(timeClient.getEpochTime());
+	nextWateringEpochTime = getNextWateringEpochTime();
+	Serial.print("Siguiente riego a las: ");
+	Serial.println(nextWateringEpochTime);
+
+}
+
 void setRelayOpen(bool relayStatus)
 {
 	Serial.print("Relay status: ");
@@ -142,6 +173,7 @@ void setRelayOpen(bool relayStatus)
 		{
 			Serial.println("Cerramos relay");
 			digitalWrite(relayPin, HIGH);//CLOSE
+			updateWateringTime();
 		}
 	}
 	isOpenRelay = relayStatus;
@@ -181,9 +213,9 @@ void loop()
 	{
 		unsigned long nextOpenRelayTime = lastTimeOpenRelay + relayTimeBetweenInMinutes;
 
-		if (epochTime >= nextOpenRelayTime )
+		if (epochTime >= nextWateringEpochTime)
 		{
-			unsigned long closeRelayAt = nextOpenRelayTime + relayOpenTimeMinutes;
+			unsigned long closeRelayAt = nextWateringEpochTime + relayOpenTimeMinutes;
 			unsigned long timeToCloseInSeconds = closeRelayAt - epochTime;
 			Serial.print("Relay control segment, close at: ");
 			Serial.println(timeToCloseInSeconds);
@@ -213,7 +245,7 @@ void loop()
 		else
 		{
 			//Debug Info only
-			unsigned long timeToOpen = nextOpenRelayTime - epochTime;
+			unsigned long timeToOpen = nextWateringEpochTime - epochTime;
 			Serial.print("Relay will open in: ");
 			Serial.print(timeToOpen);
 			Serial.println(" seconds.");
